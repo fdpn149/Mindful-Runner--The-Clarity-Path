@@ -19,7 +19,9 @@
         background-color: #0f172a;
         color: #e2e8f0;
         overflow: hidden;
-        touch-action: none;
+        touch-action: none; /* 禁止手機瀏覽器的預設手勢(如縮放、滑動翻頁) */
+        user-select: none; /* 禁止選取文字 */
+        -webkit-user-select: none;
       }
       @keyframes shake {
         0% { transform: translate(1px, 1px) rotate(0deg); }
@@ -50,7 +52,7 @@
         const LANES = 3;
         const PLAYER_Y_POS = 80;
         
-        // 如果覺得還是太快，可以把這個數字改小 (例如改為 0.3)
+        // 遊戲速度設定 (0.5 為標準速度)
         const GAME_SPEED_INITIAL = 0.5; 
         
         const SPAWN_RATE_INITIAL = 60;
@@ -87,7 +89,11 @@
         };
 
         const MASTER_QUOTES = [
-            "你的大腦一旦受損，往往是不可逆的。請珍愛自己。"
+            "一念迷是眾生，一念覺是佛。施主請再試一次。",
+            "毒品帶來的快樂是借貸，利息是你的大腦。",
+            "覺知當下，勿被外境所轉。再來過。",
+            "這一次的失敗，是下一次覺醒的養分。",
+            "保持清醒，這才是真正的自由。"
         ];
 
         // --- GameCanvas Component ---
@@ -96,7 +102,7 @@
             const canvasRef = useRef(null);
             const requestRef = useRef(0);
             
-            // 用來控制 FPS 的變數
+            // FPS 控制變數 (鎖定 60 FPS)
             const lastTimeRef = useRef(0);
             const FPS = 60;
             const INTERVAL = 1000 / FPS;
@@ -148,7 +154,7 @@
 
                 frameCountRef.current++;
                 
-                // 難度增加邏輯
+                // 難度增加
                 if (frameCountRef.current % 600 === 0) speedRef.current += 0.05;
 
                 const currentSpawnRate = Math.max(20, SPAWN_RATE_INITIAL - Math.floor(scoreRef.current / 500));
@@ -257,14 +263,13 @@
                 ctx.fillText('You', pX, pY + 30);
             };
 
-            // 修正後的核心迴圈：加入 FPS 限制 (鎖定 60 FPS)
+            // Loop with FPS limit
             const loop = () => {
                 requestRef.current = requestAnimationFrame(loop);
 
                 const now = Date.now();
                 const elapsed = now - lastTimeRef.current;
 
-                // 只有當時間超過 16.6ms (60 FPS) 時才更新畫面
                 if (elapsed > INTERVAL) {
                     lastTimeRef.current = now - (elapsed % INTERVAL);
 
@@ -289,7 +294,6 @@
                     playerRef.current = { lane: 1, isJumping: false, sanity: MAX_SANITY, effects: [], score: 0 };
                     startTimeRef.current = Date.now();
                     
-                    // 初始化時間
                     lastTimeRef.current = Date.now();
                     requestRef.current = requestAnimationFrame(loop);
                 } else {
@@ -347,6 +351,15 @@
                 } else {
                     setVisualEffects('');
                 }
+            };
+
+            // 處理移動控制 (統一處理觸控與滑鼠點擊)
+            const handleInput = (e, key) => {
+                // 阻止瀏覽器預設行為 (避免 ghost clicks 或捲動)
+                if (e.cancelable) e.preventDefault();
+                e.stopPropagation();
+                
+                window.dispatchEvent(new KeyboardEvent('keydown', { key: key }));
             };
 
             return (
@@ -467,18 +480,16 @@
                         )}
                     </div>
 
-                    {/* Touch Controls */}
+                    {/* Touch / Mouse Controls (修正版) */}
                     {gameState === GameState.PLAYING && (
                         <div className="absolute inset-0 z-20 flex">
                             <div 
-                                className="w-1/2 h-full active:bg-white/5 transition-colors"
-                                onTouchStart={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }))}
-                                onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }))}
+                                className="w-1/2 h-full active:bg-white/5 transition-colors cursor-pointer"
+                                onPointerDown={(e) => handleInput(e, 'ArrowLeft')}
                             ></div>
                             <div 
-                                className="w-1/2 h-full active:bg-white/5 transition-colors"
-                                onTouchStart={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))}
-                                onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))}
+                                className="w-1/2 h-full active:bg-white/5 transition-colors cursor-pointer"
+                                onPointerDown={(e) => handleInput(e, 'ArrowRight')}
                             ></div>
                         </div>
                     )}
