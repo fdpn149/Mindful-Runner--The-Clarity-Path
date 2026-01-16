@@ -19,26 +19,13 @@
         background-color: #0f172a;
         color: #e2e8f0;
         overflow: hidden;
-        touch-action: none; /* 禁止手機瀏覽器的預設手勢(如縮放、滑動翻頁) */
-        user-select: none; /* 禁止選取文字 */
+        touch-action: none;
+        user-select: none;
         -webkit-user-select: none;
       }
-      @keyframes shake {
-        0% { transform: translate(1px, 1px) rotate(0deg); }
-        10% { transform: translate(-1px, -2px) rotate(-1deg); }
-        20% { transform: translate(-3px, 0px) rotate(1deg); }
-        30% { transform: translate(3px, 2px) rotate(0deg); }
-        40% { transform: translate(1px, -1px) rotate(1deg); }
-        50% { transform: translate(-1px, 2px) rotate(-1deg); }
-        60% { transform: translate(-3px, 1px) rotate(0deg); }
-        70% { transform: translate(3px, 1px) rotate(-1deg); }
-        80% { transform: translate(-1px, -1px) rotate(1deg); }
-        90% { transform: translate(1px, 2px) rotate(0deg); }
-        100% { transform: translate(1px, -2px) rotate(-1deg); }
-      }
-      .animate-shake {
-        animation: shake 0.5s;
-        animation-iteration-count: infinite;
+      @keyframes pulse-shield {
+        0%, 100% { box-shadow: 0 0 10px #facc15; }
+        50% { box-shadow: 0 0 25px #facc15; }
       }
     </style>
 </head>
@@ -52,13 +39,17 @@
         const LANES = 3;
         const PLAYER_Y_POS = 80;
         
-        // 遊戲速度設定 (0.5 為標準速度)
-        const GAME_SPEED_INITIAL = 0.5; 
-        
+        // [修改] 速度設定
+        const GAME_SPEED_INITIAL = 1.5; 
+        const GAME_SPEED_MAX = 3.5;     // 最大速度上限
+        const SPEED_INCREMENT = 0.25;   // 每次加速幅度
+        const SPEED_INTERVAL = 500;     // 每多少分加速一次 (500分約等於8秒)
+
         const SPAWN_RATE_INITIAL = 60;
         const MAX_SANITY = 100;
         const SANITY_DECAY = 0.05;
-        const SANITY_RESTORE = 20;
+        const SANITY_RESTORE_ZEN = 20;
+        const SANITY_RESTORE_KNOWLEDGE = 40;
 
         // Enum 模擬
         const GameState = {
@@ -76,7 +67,8 @@
 
         const PowerUpType = {
             ZEN: 'ZEN',
-            KNOWLEDGE: 'KNOWLEDGE'
+            KNOWLEDGE: 'KNOWLEDGE',
+            HEART: 'HEART'
         };
 
         const ENTITY_CONFIG = {
@@ -84,8 +76,10 @@
             [ObstacleType.WEED]: { label: '大麻', emoji: '🌿', color: '#4ade80', damage: 10, effect: 'FOG', description: '記憶力退化' },
             [ObstacleType.METH]: { label: '安非他命', emoji: '💊', color: '#60a5fa', damage: 25, effect: 'SHAKE', description: '暴力傾向' },
             [ObstacleType.FRIEND]: { label: '損友', emoji: '😈', color: '#a855f7', damage: 20, effect: null, description: '誘惑與誤導' },
-            [PowerUpType.ZEN]: { label: '禪修', emoji: '🧘', color: '#fbbf24', value: 0, effect: 'HEAL', description: '恢復理智' },
-            [PowerUpType.KNOWLEDGE]: { label: '腦科學', emoji: '🧠', color: '#22d3ee', value: 500, effect: 'SCORE', description: '正確知識' },
+            
+            [PowerUpType.ZEN]: { label: '禪修', emoji: '🧘', color: '#fbbf24', effect: 'HEAL', description: '恢復理智 (+20)' },
+            [PowerUpType.KNOWLEDGE]: { label: '腦科學', emoji: '🧠', color: '#22d3ee', effect: 'BIG_HEAL', description: '大幅恢復 (+40)' },
+            [PowerUpType.HEART]: { label: '本心', emoji: '❤️', color: '#ef4444', effect: 'SHIELD', description: '抵擋一次傷害' }
         };
 
         const MASTER_QUOTES = [
@@ -93,7 +87,9 @@
             "毒品帶來的快樂是借貸，利息是你的大腦。",
             "覺知當下，勿被外境所轉。再來過。",
             "這一次的失敗，是下一次覺醒的養分。",
-            "保持清醒，這才是真正的自由。"
+            "保持清醒，這才是真正的自由。",
+            "有了本心護體，方能百毒不侵。",
+            "速度越快，心越要慢。保持覺知。"
         ];
 
         // --- GameCanvas Component ---
@@ -102,7 +98,7 @@
             const canvasRef = useRef(null);
             const requestRef = useRef(0);
             
-            // FPS 控制變數 (鎖定 60 FPS)
+            // FPS 控制
             const lastTimeRef = useRef(0);
             const FPS = 60;
             const INTERVAL = 1000 / FPS;
@@ -119,7 +115,8 @@
                 isJumping: false,
                 sanity: MAX_SANITY,
                 effects: [],
-                score: 0
+                score: 0,
+                shield: false 
             });
 
             const getLaneX = (laneIdx, canvasWidth) => {
@@ -132,12 +129,13 @@
                 const lane = Math.floor(Math.random() * LANES);
                 let type;
 
-                if (rand < 0.15) type = PowerUpType.ZEN;
-                else if (rand < 0.20) type = PowerUpType.KNOWLEDGE;
-                else if (rand < 0.40) type = ObstacleType.FRIEND;
-                else if (rand < 0.60) type = ObstacleType.KETAMINE;
-                else if (rand < 0.80) type = ObstacleType.WEED;
-                else type = ObstacleType.METH;
+                if (rand < 0.15) type = PowerUpType.ZEN;          
+                else if (rand < 0.20) type = PowerUpType.KNOWLEDGE; 
+                else if (rand < 0.30) type = PowerUpType.HEART;     
+                else if (rand < 0.50) type = ObstacleType.FRIEND;   
+                else if (rand < 0.70) type = ObstacleType.KETAMINE; 
+                else if (rand < 0.85) type = ObstacleType.WEED;     
+                else type = ObstacleType.METH;                      
 
                 const newEntity = {
                     id: Math.random().toString(36).substr(2, 9),
@@ -153,16 +151,28 @@
                 if (gameState !== GameState.PLAYING) return;
 
                 frameCountRef.current++;
+
+                // [修改] 隨著分數(時間)增加速度
+                // 每當分數累積一定程度，且速度未達上限時，增加速度
+                if (scoreRef.current > 0 && scoreRef.current % SPEED_INTERVAL === 0) {
+                    if (speedRef.current < GAME_SPEED_MAX) {
+                        speedRef.current += SPEED_INCREMENT;
+                    }
+                }
+
+                // [修改] 生成頻率也會隨著速度變快而變高
+                // 速度越快，障礙物間距如果固定，會顯得太簡單，所以讓它生成快一點點
+                const currentSpawnRate = Math.max(20, SPAWN_RATE_INITIAL - Math.floor(scoreRef.current / 400));
                 
-                // 難度增加
-                if (frameCountRef.current % 600 === 0) speedRef.current += 0.05;
+                if (frameCountRef.current % currentSpawnRate === 0) {
+                    spawnEntity();
+                }
 
-                const currentSpawnRate = Math.max(20, SPAWN_RATE_INITIAL - Math.floor(scoreRef.current / 500));
-                if (frameCountRef.current % currentSpawnRate === 0) spawnEntity();
-
+                // 移動實體
                 entitiesRef.current.forEach(e => { e.y += speedRef.current; });
                 entitiesRef.current = entitiesRef.current.filter(e => e.y < 120 && e.active);
 
+                // 自然壓力扣血
                 if (frameCountRef.current % 10 === 0) {
                     playerRef.current.sanity = Math.max(0, playerRef.current.sanity - SANITY_DECAY);
                     onSanityUpdate(playerRef.current.sanity);
@@ -183,6 +193,7 @@
                     .map(eff => ({ ...eff, duration: eff.duration - 1 }))
                     .filter(eff => eff.duration > 0);
 
+                // 分數 = 時間
                 scoreRef.current += 1;
                 onScoreUpdate(scoreRef.current);
 
@@ -194,15 +205,25 @@
                 const config = ENTITY_CONFIG[entity.type];
 
                 if (entity.type === PowerUpType.ZEN) {
-                    playerRef.current.sanity = Math.min(MAX_SANITY, playerRef.current.sanity + SANITY_RESTORE);
+                    playerRef.current.sanity = Math.min(MAX_SANITY, playerRef.current.sanity + SANITY_RESTORE_ZEN);
                     playerRef.current.effects = []; 
-                } else if (entity.type === PowerUpType.KNOWLEDGE) {
-                    scoreRef.current += config.value || 0;
-                } else {
-                    playerRef.current.sanity = Math.max(0, playerRef.current.sanity - (config.damage || 10));
-                    obstaclesHitRef.current.push(entity.type);
-                    if (config.effect) {
-                        playerRef.current.effects.push({ type: config.effect, duration: 120 });
+                } 
+                else if (entity.type === PowerUpType.KNOWLEDGE) {
+                    playerRef.current.sanity = Math.min(MAX_SANITY, playerRef.current.sanity + SANITY_RESTORE_KNOWLEDGE);
+                    playerRef.current.effects = []; 
+                } 
+                else if (entity.type === PowerUpType.HEART) {
+                    playerRef.current.shield = true;
+                } 
+                else {
+                    if (playerRef.current.shield) {
+                        playerRef.current.shield = false;
+                    } else {
+                        playerRef.current.sanity = Math.max(0, playerRef.current.sanity - (config.damage || 10));
+                        obstaclesHitRef.current.push(entity.type);
+                        if (config.effect) {
+                            playerRef.current.effects.push({ type: config.effect, duration: 120 });
+                        }
                     }
                 }
                 onSanityUpdate(playerRef.current.sanity);
@@ -255,6 +276,17 @@
                 const pY = (PLAYER_Y_POS / 100) * canvas.height;
                 const hasDiaper = playerRef.current.effects.some(e => e.type === 'DIAPER');
                 
+                if (playerRef.current.shield) {
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = '#facc15'; 
+                    ctx.strokeStyle = '#facc15';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.arc(pX, pY, 30, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                }
+
                 ctx.font = '40px Arial';
                 ctx.fillText(hasDiaper ? '👶' : '🏃', pX, pY);
 
@@ -263,16 +295,12 @@
                 ctx.fillText('You', pX, pY + 30);
             };
 
-            // Loop with FPS limit
             const loop = () => {
                 requestRef.current = requestAnimationFrame(loop);
-
                 const now = Date.now();
                 const elapsed = now - lastTimeRef.current;
-
                 if (elapsed > INTERVAL) {
                     lastTimeRef.current = now - (elapsed % INTERVAL);
-
                     const canvas = canvasRef.current;
                     if (canvas) {
                         const ctx = canvas.getContext('2d');
@@ -291,7 +319,14 @@
                     frameCountRef.current = 0;
                     entitiesRef.current = [];
                     obstaclesHitRef.current = [];
-                    playerRef.current = { lane: 1, isJumping: false, sanity: MAX_SANITY, effects: [], score: 0 };
+                    playerRef.current = { 
+                        lane: 1, 
+                        isJumping: false, 
+                        sanity: MAX_SANITY, 
+                        effects: [], 
+                        score: 0,
+                        shield: false 
+                    };
                     startTimeRef.current = Date.now();
                     
                     lastTimeRef.current = Date.now();
@@ -353,12 +388,9 @@
                 }
             };
 
-            // 處理移動控制 (統一處理觸控與滑鼠點擊)
             const handleInput = (e, key) => {
-                // 阻止瀏覽器預設行為 (避免 ghost clicks 或捲動)
                 if (e.cancelable) e.preventDefault();
                 e.stopPropagation();
-                
                 window.dispatchEvent(new KeyboardEvent('keydown', { key: key }));
             };
 
@@ -420,10 +452,10 @@
                                         逃離毒品的迷霧。在這個無盡的跑酷中，你需要躲避誘惑，保持清醒。
                                     </p>
                                     <div className="grid grid-cols-2 gap-4 text-left text-sm mb-4">
-                                        <div className="flex items-center gap-2"><span className="text-2xl">🍼</span> <span>K他命</span></div>
-                                        <div className="flex items-center gap-2"><span className="text-2xl">🌿</span> <span>大麻</span></div>
-                                        <div className="flex items-center gap-2"><span className="text-2xl">💊</span> <span>安非他命</span></div>
-                                        <div className="flex items-center gap-2"><span className="text-2xl">🧘</span> <span>禪修</span></div>
+                                        <div className="flex items-center gap-2"><span className="text-2xl">🍼/🌿</span> <span>毒品 (扣血)</span></div>
+                                        <div className="flex items-center gap-2"><span className="text-2xl">🧘</span> <span>禪修 (+20理智)</span></div>
+                                        <div className="flex items-center gap-2"><span className="text-2xl">❤️</span> <span>本心 (無敵護盾)</span></div>
+                                        <div className="flex items-center gap-2"><span className="text-2xl">🧠</span> <span>腦科學 (+40理智)</span></div>
                                     </div>
                                     <button 
                                         onClick={() => setGameState(GameState.PLAYING)}
@@ -480,7 +512,7 @@
                         )}
                     </div>
 
-                    {/* Touch / Mouse Controls (修正版) */}
+                    {/* Touch / Mouse Controls */}
                     {gameState === GameState.PLAYING && (
                         <div className="absolute inset-0 z-20 flex">
                             <div 
